@@ -1,9 +1,13 @@
+
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 import paho.mqtt.client as mqtt
 import sqlite3
 from datetime import datetime
 import logging
+import time
+import threading
 from werkzeug.security import generate_password_hash, check_password_hash
+import secrets
 
 app = Flask(__name__)
 
@@ -23,7 +27,7 @@ app.secret_key = '3427c80e7f70ff707e1031e191d47470539ad370d9481692'
 mqttBroker = "iot-dashboard.cloud.shiftr.io"
 mqttUser = "iot-dashboard"
 mqttPassword = "YBxsZiVmkHljoCId"
-mqttClient = mqtt.Client(client_id="iot-dashboard-08122004", protocol=mqtt.MQTTv311)
+mqttClient = mqtt.Client(client_id="iot-dashboard-08122004")  # Unique client ID
 
 mqttClient.username_pw_set(mqttUser, mqttPassword)
 
@@ -97,54 +101,70 @@ def init_db():
     conn.close()
 
 # MQTT Sensor Data Handler
-def on_connect(client, userdata, flags, reason_code, properties=None):
-    if reason_code == 0:
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
         logging.info("Connected to MQTT Broker!")
-        client.subscribe("home/sensors/temperature", qos=1)
-        client.subscribe("home/sensors/humidity", qos=1)
-        client.subscribe("home/sensors/light", qos=1)
-        client.subscribe("home/control/light", qos=1)
-        client.subscribe("home/control/fan", qos=1)
-        client.subscribe("home/control/motor", qos=1)
+        client.subscribe("home/sensors")
+        client.subscribe("home/control")
     else:
-        logging.error(f"Failed to connect, return code {reason_code}")
+        logging.error(f"Failed to connect, return code {rc}")
 
 def on_message(client, userdata, msg):
-    topic = msg.topic
-    payload = msg.payload.decode()
-    try:
-        if topic == "home/sensors/temperature":
-            store_sensor_data(temperature=float(payload))
-        elif topic == "home/sensors/humidity":
-            store_sensor_data(humidity=float(payload))
-        elif topic == "home/sensors/light":
-            store_sensor_data(light=float(payload))
-        elif topic == "home/control/light":
-            store_light_status(payload, 1)
-        elif topic == "home/control/fan":
-            store_fan_status(payload)
-        elif topic == "home/control/motor":
-            store_motor_status(payload.lower())
-        app.logger.debug(f"[✓] Processed: {payload} from {topic}")
-    except Exception as e:
-        app.logger.error(f"[✗] Failed to process message from {topic}: {e}")
+    if msg.topic == "home/sensors":
+        try:
+            payload = msg.payload.decode()
+            humidity, temperature, light = map(float, payload.split(","))
+            store_sensor_data(humidity, temperature, light)
+            app.logger.debug(f"[✓] Stored: H={humidity}, T={temperature}, L={light}")
+        except Exception as e:
+            app.logger.error(f"[✗] Failed to process sensor data: {e}")
+    elif msg.topic == "home/control":
+        try:
+            payload = msg.payload.decode()
+            if payload in ["led1_on", "led1_off"]:
+                store_light_status(payload, 1)
+            elif payload in ["fan_on", "fan_off"]:
+                store_fan_status(payload.replace("fan_", ""))
+            elif payload in ["motor_forward", "motor_backward", "motor_stop"]:
+                store_motor_status(payload.replace("motor_", ""))
+            app.logger.debug(f"[✓] Processed control: {payload}")
+        except Exception as e:
+            app.logger.error(f"[✗] Failed to process control data: {e}")
+
+# Publish sensor data periodically
+def publish_sensor_data():
+    while True:
+        try:
+            conn = sqlite3.connect('iot_data.db')
+            cursor = conn.cursor()
+            cursor.execute("SELECT humidity, temperature FROM temperature_humidity_data ORDER BY id DESC LIMIT 1")
+            temp_hum = cursor.fetchone()
+            cursor.execute("SELECT light_level FROM light_sensor_data ORDER BY id DESC LIMIT 1")
+            light = cursor.fetchone()
+            conn.close()
+            
+            if temp_hum and light:
+                payload = f"{temp_hum[0]},{temp_hum[1]},{light[0]}"
+                mqttClient.publish("home/sensors", payload)
+                app.logger.debug(f"[✓] Published sensor data: {payload}")
+        except Exception as e:
+            app.logger.error(f"Error publishing sensor data: {e}")
+        time.sleep(60)
 
 # Database Functions
-def store_sensor_data(temperature=None, humidity=None, light=None):
+def store_sensor_data(humidity, temperature, light):
     try:
         conn = sqlite3.connect("iot_data.db")
         cursor = conn.cursor()
         timestamp = datetime.now().isoformat()
-        if temperature is not None and humidity is not None:
-            cursor.execute(
-                "INSERT INTO temperature_humidity_data (device_id, timestamp, humidity, temperature) VALUES (?, ?, ?, ?)",
-                (1, timestamp, humidity, temperature)
-            )
-        if light is not None:
-            cursor.execute(
-                "INSERT INTO light_sensor_data (device_id, timestamp, light_level) VALUES (?, ?, ?)",
-                (1, timestamp, light)
-            )
+        cursor.execute(
+            "INSERT INTO temperature_humidity_data (device_id, timestamp, humidity, temperature) VALUES (?, ?, ?, ?)",
+            (1, timestamp, humidity, temperature)
+        )
+        cursor.execute(
+            "INSERT INTO light_sensor_data (device_id, timestamp, light_level) VALUES (?, ?, ?)",
+            (1, timestamp, light)
+        )
         conn.commit()
     except Exception as e:
         app.logger.error(f"Error in store_sensor_data: {e}")
@@ -157,7 +177,7 @@ def store_light_status(action, device_id):
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO relay_lights_status (device_id, timestamp, status) VALUES (?, ?, ?)",
-            (device_id, datetime.now().isoformat(), 1 if action == 'ON' else 0)
+            (device_id, datetime.now().isoformat(), 1 if action.endswith('_on') else 0)
         )
         conn.commit()
     except Exception as e:
@@ -171,7 +191,7 @@ def store_fan_status(action):
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO relay_fans_status (device_id, timestamp, status) VALUES (?, ?, ?)",
-            (6, datetime.now().isoformat(), 1 if action == 'ON' else 0)
+            (6, datetime.now().isoformat(), 1 if action == 'on' else 0)
         )
         conn.commit()
     except Exception as e:
@@ -248,10 +268,10 @@ def control_led():
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     action = request.json.get('action')
     device_id = request.json.get('device_id')
-    if action not in ['ON', 'OFF'] or not device_id:
+    if action not in ['led1_on', 'led1_off'] or not device_id:
         return jsonify({'status': 'error', 'message': 'Invalid action or device_id'}), 400
     try:
-        mqttClient.publish("home/control/light", action, qos=1)
+        mqttClient.publish("home/control", action)
         store_light_status(action, device_id)
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -263,10 +283,10 @@ def control_fan():
     if 'user_id' not in session:
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     action = request.json.get('action')
-    if action not in ['ON', 'OFF']:
+    if action not in ['on', 'off']:
         return jsonify({'status': 'error', 'message': 'Invalid fan action'}), 400
     try:
-        mqttClient.publish("home/control/fan", action, qos=1)
+        mqttClient.publish("home/control", f"fan_{action}")
         store_fan_status(action)
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -278,11 +298,11 @@ def control_motor():
     if 'user_id' not in session:
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     action = request.json.get('action')
-    if action not in ['FORWARD', 'BACKWARD', 'STOP']:
+    if action not in ['forward', 'backward', 'stop']:
         return jsonify({'status': 'error', 'message': 'Invalid motor action'}), 400
     try:
-        mqttClient.publish("home/control/motor", action, qos=1)
-        store_motor_status(action.lower())
+        mqttClient.publish("home/control", f"motor_{action}")
+        store_motor_status(action)
         return jsonify({'status': 'success'})
     except Exception as e:
         app.logger.error(f"Error in control_motor route: {e}")

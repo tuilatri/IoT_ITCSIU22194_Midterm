@@ -1,0 +1,1531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IoT Control Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="icon" href="../static/images/iu_logo.png">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" />
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    .theme--light {
+      --background: #f5f6fa;
+      --card-background: #ffffff;
+      --text-primary: #1a1a1a;
+      --text-secondary: #4a4a4a;
+      --button-background: #4a90e2;
+      --button-background-hover: #357abd;
+      --status-background: #e8f0fe;
+      --status-success: #2e7d32;
+      --status-error: #c62828;
+      --shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      --table-background: #f9fafb;
+      --chart-background: #f9fafb;
+    }
+
+    .theme--dark {
+      --background: #1a1a1a;
+      --card-background: #2d2d2d;
+      --text-primary: #ffffff;
+      --text-secondary: #b0b0b0;
+      --button-background: #64b5f6;
+      --button-background-hover: #4a90e2;
+      --status-background: #3a3a3a;
+      --status-success: #4caf50;
+      --status-error: #ef5350;
+      --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      --table-background: #2a2a2a;
+      --chart-background: #2a2a2a;
+    }
+
+    body {
+      font-family: "Inter", sans-serif;
+      background: var(--background);
+      min-height: 100vh;
+      color: var(--text-primary);
+      transition: all 0.3s ease;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      background: rgb(47, 57, 142);
+      color: #ffffff;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+    }
+
+    .header__content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 5px;
+      max-width: 1200px;
+      width: 100%;
+    }
+
+    .header__image {
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+
+    .header__text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .header__title {
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    .header__subtitle {
+      font-size: 1rem;
+      opacity: 0.8;
+    }
+
+    .header__actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .theme-toggle,
+    .logout-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1.2rem;
+      color: #ffffff;
+      padding: 8px;
+      transition: opacity 0.3s ease;
+    }
+
+    .theme-toggle:hover,
+    .logout-button:hover {
+      opacity: 0.8;
+    }
+
+    .main-content {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+      flex: 1;
+    }
+
+    .controls-column {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .visualization-column {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .dashboard {
+      background: var(--card-background);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: var(--shadow);
+      width: 100%;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .dashboard__header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .dashboard__title {
+      font-size: 1.8rem;
+      font-weight: 600;
+    }
+
+    .sensor-data {
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+
+    .sensor-data__item {
+      display: flex;
+      justify-content: space-between;
+      margin: 8px 0;
+      font-size: 1rem;
+    }
+
+    .sensor-data__label {
+      color: var(--text-secondary);
+    }
+
+    .sensor-data__value {
+      font-weight: 600;
+    }
+
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .controls__button {
+      padding: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: var(--button-background);
+      color: #ffffff;
+      transition: background 0.3s ease, transform 0.2s ease;
+    }
+
+    .controls__button:hover {
+      background: var(--button-background-hover);
+      transform: translateY(-2px);
+    }
+
+    .controls__section {
+      margin-bottom: 24px;
+    }
+
+    .controls__section-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .status {
+      background: var(--status-background);
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 0.9rem;
+      text-align: center;
+      color: var(--text-secondary);
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      box-shadow: var(--shadow);
+    }
+
+    .status--success {
+      color: var(--status-success);
+      border-color: var(--status-success);
+    }
+
+    .status--error {
+      color: var(--status-error);
+      border-color: var(--status-error);
+    }
+
+    .history-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .history {
+      background: var(--card-background);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .history__title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .history__table-wrapper {
+      overflow-x: auto;
+    }
+
+    .history__table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--table-background);
+      border-radius: 8px;
+      table-layout: fixed;
+    }
+
+    .history__table th,
+    .history__table td {
+      padding: 10px;
+      font-size: 0.9rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      border-right: 1px solid rgba(0, 0, 0, 0.05);
+      overflow-wrap: break-word;
+    }
+
+    .history__table th:last-child,
+    .history__table td:last-child {
+      border-right: none;
+    }
+
+    .history__table th {
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+
+    .history__table td {
+      color: var(--text-primary);
+    }
+
+    .history__table#sensorTable th:nth-child(1),
+    .history__table#sensorTable td:nth-child(1) {
+      width: 10%;
+    }
+
+    .history__table#sensorTable th:nth-child(2),
+    .history__table#sensorTable td:nth-child(2) {
+      width: 35%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 0;
+    }
+
+    .history__table#sensorTable th:nth-child(3),
+    .history__table#sensorTable td:nth-child(3) {
+      width: 20%;
+    }
+
+    .history__table#sensorTable th:nth-child(4),
+    .history__table#sensorTable td:nth-child(4) {
+      width: 20%;
+    }
+
+    .history__table#sensorTable th:nth-child(5),
+    .history__table#sensorTable td:nth-child(5) {
+      width: 15%;
+    }
+
+    .history__table:not(#sensorTable) th:nth-child(1),
+    .history__table:not(#sensorTable) td:nth-child(1) {
+      width: 20%;
+    }
+
+    .history__table:not(#sensorTable) th:nth-child(2),
+    .history__table:not(#sensorTable) td:nth-child(2) {
+      width: 60%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 0;
+    }
+
+    .history__table:not(#sensorTable) th:nth-child(3),
+    .history__table:not(#sensorTable) td:nth-child(3) {
+      width: 20%;
+    }
+
+    .history__toggle {
+      display: none; /* Hidden by default */
+      margin: 12px auto 0;
+      padding: 8px 16px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: var(--button-background);
+      color: #ffffff;
+      transition: background 0.3s ease;
+    }
+
+    .history__toggle.visible {
+      display: block; /* Show when there are more than 3 rows */
+    }
+
+    .history__toggle:hover {
+      background: var(--button-background-hover);
+    }
+
+    .visualization__block {
+      background: var(--card-background);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: var(--shadow);
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .visualization__block-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .visualization__chart-container {
+      max-width: 1000px;
+      height: 400px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    .visualization__chart {
+      background: var(--chart-background);
+      border-radius: 8px;
+      width: 100%;
+      height: 100%;
+    }
+
+    .visualization__chart-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+      overflow-wrap: break-word;
+      max-width: 100%;
+      text-align: center;
+    }
+
+    .visualization__chart-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 24px;
+    }
+
+    .footer {
+      background: var(--card-background);
+      padding: 16px;
+      text-align: center;
+      color: var(--text-secondary);
+      margin-top: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .footer__text {
+      font-size: 0.9rem;
+    }
+
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      color: #ffffff;
+      font-size: 0.9rem;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      opacity: 0;
+      transform: translateY(-20px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      z-index: 1000;
+    }
+
+    .notification.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .notification.success {
+      background: #2e7d32;
+    }
+
+    .notification.error {
+      background: #c62828;
+    }
+
+    @media (max-width: 1024px) {
+      .main-content {
+        grid-template-columns: 1fr;
+      }
+
+      .visualization-column {
+        order: 2;
+      }
+
+      .controls-column {
+        order: 1;
+      }
+
+      .visualization__chart-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .dashboard {
+        max-width: 100%;
+      }
+
+      .controls-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .history-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .visualization__chart-container {
+        max-width: 100%;
+        height: 350px;
+      }
+
+      .visualization__chart-title {
+        font-size: 1rem;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .dashboard {
+        padding: 16px;
+      }
+
+      .dashboard__title {
+        font-size: 1.5rem;
+      }
+
+      .controls__button {
+        font-size: 0.9rem;
+        padding: 10px;
+      }
+
+      .history__table th,
+      .history__table td {
+        font-size: 0.75rem;
+        padding: 8px;
+      }
+
+      .header__image {
+        width: 40px;
+        height: 40px;
+      }
+
+      .header__title {
+        font-size: 1.2rem;
+      }
+
+      .header__subtitle {
+        font-size: 0.8rem;
+      }
+
+      .header__actions {
+        gap: 4px;
+      }
+
+      .theme-toggle,
+      .logout-button {
+        font-size: 1rem;
+        padding: 6px;
+      }
+
+      .visualization__chart-container {
+        height: 300px;
+      }
+
+      .visualization__chart-title {
+        font-size: 0.9rem;
+      }
+
+      .notification {
+        top: 10px;
+        right: 10px;
+        padding: 10px 20px;
+        font-size: 0.8rem;
+      }
+
+      .history__table#sensorTable th:nth-child(1),
+      .history__table#sensorTable td:nth-child(1) {
+        width: 15%;
+      }
+
+      .history__table#sensorTable th:nth-child(2),
+      .history__table#sensorTable td:nth-child(2) {
+        width: 30%;
+      }
+
+      .history__table#sensorTable th:nth-child(3),
+      .history__table#sensorTable td:nth-child(3) {
+        width: 20%;
+      }
+
+      .history__table#sensorTable th:nth-child(4),
+      .history__table#sensorTable td:nth-child(4) {
+        width: 20%;
+      }
+
+      .history__table#sensorTable th:nth-child(5),
+      .history__table#sensorTable td:nth-child(5) {
+        width: 15%;
+      }
+
+      .history__table:not(#sensorTable) th:nth-child(1),
+      .history__table:not(#sensorTable) td:nth-child(1) {
+        width: 25%;
+      }
+
+      .history__table:not(#sensorTable) th:nth-child(2),
+      .history__table:not(#sensorTable) td:nth-child(2) {
+        width: 50%;
+      }
+
+      .history__table:not(#sensorTable) th:nth-child(3),
+      .history__table:not(#sensorTable) td:nth-child(3) {
+        width: 25%;
+      }
+    }
+  </style>
+</head>
+<body class="theme--light">
+  <header class="header">
+    <div class="header__content">
+      <div style="display: flex; align-items: center; gap: 5px;">
+        <img src="../static/images/iu_logo.png" alt="IoT Logo" class="header__image" />
+        <div class="header__text">
+          <span class="header__title">IoT Control Dashboard</span>
+          <span class="header__subtitle">Smart Home Automation System</span>
+        </div>
+      </div>
+      <div class="header__actions">
+        <button class="theme-toggle" onclick="toggleTheme()">
+          <i class="fas fa-moon"></i>
+        </button>
+        <button class="logout-button" onclick="logout()">
+          <i class="fas fa-sign-out-alt"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="main-content">
+    <div class="controls-column">
+      <div class="dashboard">
+        <div class="dashboard__header">
+          <h1 class="dashboard__title">Control Panel</h1>
+        </div>
+
+        <div class="sensor-data">
+          <div class="sensor-data__item">
+            <span class="sensor-data__label">
+              <i class="fas fa-thermometer-half"></i> Temperature
+            </span>
+            <span class="sensor-data__value" id="temperature">
+              <em>⏳</em>°C
+            </span>
+          </div>
+          <div class="sensor-data__item">
+            <span class="sensor-data__label">
+              <i class="fas fa-tint"></i> Humidity
+            </span>
+            <span class="sensor-data__value" id="humidity">
+              <em>⏳</em>%
+            </span>
+          </div>
+          <div class="sensor-data__item">
+            <span class="sensor-data__label">
+              <i class="fas fa-lightbulb"></i> Light Level
+            </span>
+            <span class="sensor-data__value" id="light">
+              <em>⏳</em>
+            </span>
+          </div>
+        </div>
+
+        <div class="controls__section">
+          <h2 class="controls__section-title">LED Control</h2>
+          <div class="controls-grid">
+            <button class="controls__button" onclick="controlLight('led1_on', 1)">
+              <i class="fas fa-lightbulb"></i> LED1 ON
+            </button>
+            <button class="controls__button" onclick="controlLight('led1_off', 1)">
+              <i class="fas fa-lightbulb"></i> LED1 OFF
+            </button>
+          </div>
+        </div>
+
+        <div class="controls__section">
+          <h2 class="controls__section-title">DC Motor Control</h2>
+          <div class="controls-grid">
+            <button class="controls__button" onclick="controlMotor('forward')">
+              <i class="fas fa-arrow-right"></i> Move Forward
+            </button>
+            <button class="controls__button" onclick="controlMotor('backward')">
+              <i class="fas fa-arrow-left"></i> Move Backward
+            </button>
+            <button class="controls__button" onclick="controlMotor('stop')">
+              <i class="fas fa-stop"></i> Stop Motor
+            </button>
+          </div>
+        </div>
+
+        <div class="controls__section">
+          <h2 class="controls__section-title">Fan Control</h2>
+          <div class="controls-grid">
+            <button class="controls__button" onclick="controlFan('on')">
+              <i class="fas fa-fan"></i> Turn Fan ON
+            </button>
+            <button class="controls__button" onclick="controlFan('off')">
+              <i class="fas fa-fan"></i> Turn Fan OFF
+            </button>
+          </div>
+        </div>
+
+        <div class="status" id="statusMessage">Ready for action...</div>
+      </div>
+
+      <div class="history-grid">
+        <div class="history">
+          <h2 class="history__title">Sensor Data History</h2>
+          <div class="history__table-wrapper">
+            <table class="history__table" id="sensorTable">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Timestamp</th>
+                  <th>Temperature (°C)</th>
+                  <th>Humidity (%)</th>
+                  <th>Light Level</th>
+                </tr>
+              </thead>
+              <tbody id="sensorTableBody"></tbody>
+            </table>
+          </div>
+          <button class="history__toggle" id="sensorToggle" onclick="toggleHistory('sensor')">
+            Show More
+          </button>
+        </div>
+
+        <div class="history">
+          <h2 class="history__title">LED1 Status History</h2>
+          <div class="history__table-wrapper">
+            <table class="history__table" id="led1Table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Timestamp</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="led1TableBody"></tbody>
+            </table>
+          </div>
+          <button class="history__toggle" id="led1Toggle" onclick="toggleHistory('led1')">
+            Show More
+          </button>
+        </div>
+
+        <div class="history">
+          <h2 class="history__title">DC Motor Status History</h2>
+          <div class="history__table-wrapper">
+            <table class="history__table" id="motorTable">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Timestamp</th>
+                  <th>Direction</th>
+                </tr>
+              </thead>
+              <tbody id="motorTableBody"></tbody>
+            </table>
+          </div>
+          <button class="history__toggle" id="motorToggle" onclick="toggleHistory('motor')">
+            Show More
+          </button>
+        </div>
+
+        <div class="history">
+          <h2 class="history__title">Fan Status History</h2>
+          <div class="history__table-wrapper">
+            <table class="history__table" id="fanTable">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Timestamp</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="fanTableBody"></tbody>
+            </table>
+          </div>
+          <button class="history__toggle" id="fanToggle" onclick="toggleHistory('fan')">
+            Show More
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="visualization-column">
+      <div class="visualization__block">
+        <h2 class="visualization__block-title">Device Data Visualization</h2>
+        <div class="visualization__chart-grid">
+          <div class="visualization__chart-container">
+            <h3 class="visualization__chart-title">Temperature Sensor</h3>
+            <canvas id="temperatureChart" class="visualization__chart"></canvas>
+          </div>
+          <div class="visualization__chart-container">
+            <h3 class="visualization__chart-title">Humidity Sensor</h3>
+            <canvas id="humidityChart" class="visualization__chart"></canvas>
+          </div>
+          <div class="visualization__chart-container">
+            <h3 class="visualization__chart-title">Light Sensor</h3>
+            <canvas id="lightChart" class="visualization__chart"></canvas>
+          </div>
+          <div class="visualization__chart-container">
+            <h3 class="visualization__chart-title">LED1</h3>
+            <canvas id="led1Chart" class="visualization__chart"></canvas>
+          </div>
+          <div class="visualization__chart-container">
+            <h3 class="visualization__chart-title">DC Motor</h3>
+            <canvas id="motorChart" class="visualization__chart"></canvas>
+          </div>
+          <div class="visualization__chart-container">
+            <h3 class="visualization__chart-title">Fan</h3>
+            <canvas id="fanChart" class="visualization__chart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="notification" class="notification"></div>
+
+  <footer class="footer">
+    <p class="footer__text">
+      Developed by Ha Minh Tri (ITCSIU22194) under the supervision of M.Eng. Vo
+      Minh Thanh for the IoT Course, Semester 03, Academic Year 2024-2025.
+    </p>
+  </footer>
+
+  <script>
+    let sensorHistory = [];
+    let led1History = [];
+    let motorHistory = [];
+    let fanHistory = [];
+    let chartInstances = {};
+    let tableStates = {
+      sensor: false,
+      led1: false,
+      motor: false,
+      fan: false
+    };
+
+    function toggleTheme() {
+      document.body.classList.toggle('theme--dark');
+      document.body.classList.toggle('theme--light');
+      const themeIcon = document.querySelector('.theme-toggle i');
+      themeIcon.classList.toggle('fa-moon');
+      themeIcon.classList.toggle('fa-sun');
+    }
+
+    function showNotification(message, type) {
+      const notification = document.getElementById('notification');
+      notification.textContent = message;
+      notification.className = `notification ${type} show`;
+      setTimeout(() => {
+        notification.className = 'notification';
+      }, 3000);
+    }
+
+    function logout() {
+      fetch('/logout', {
+        method: 'GET',
+      })
+        .then((response) => {
+          if (response.redirected) {
+            showNotification('Logout successful! Redirecting...', 'success');
+            setTimeout(() => {
+              window.location.href = response.url;
+            }, 1000);
+          } else {
+            return response.json().then(data => {
+              throw new Error(data.message || 'Logout failed');
+            });
+          }
+        })
+        .catch((error) => {
+          showNotification(`Error: ${error.message || 'Unknown error'}`, 'error');
+          console.error('Error during logout:', error);
+        });
+    }
+
+    function updateTable(type, data, showAll = false) {
+      const tableBody = document.getElementById(`${type}TableBody`);
+      const toggleButton = document.getElementById(`${type}Toggle`);
+      if (!tableBody || !data || !toggleButton) return;
+
+      tableBody.innerHTML = '';
+      const limit = showAll ? data.length : Math.min(3, data.length);
+
+      if (type === 'sensor') {
+        data.slice(0, limit).forEach((entry) => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${entry.id || 'N/A'}</td>
+            <td>${new Date(entry.timestamp).toLocaleString()}</td>
+            <td>${entry.temperature ? entry.temperature.toFixed(2) : 'N/A'}</td>
+            <td>${entry.humidity ? entry.humidity.toFixed(2) : 'N/A'}</td>
+            <td>${entry.light_level ? entry.light_level : 'N/A'}</td>
+          `;
+          tableBody.appendChild(row);
+        });
+      } else if (type === 'led1') {
+        data.slice(0, limit).forEach((entry) => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${entry.id || 'N/A'}</td>
+            <td>${new Date(entry.timestamp).toLocaleString()}</td>
+            <td>${entry.status === 1 ? 'ON' : 'OFF'}</td>
+          `;
+          tableBody.appendChild(row);
+        });
+      } else if (type === 'motor') {
+        data.slice(0, limit).forEach((entry) => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${entry.id || 'N/A'}</td>
+            <td>${new Date(entry.timestamp).toLocaleString()}</td>
+            <td>${entry.direction || 'N/A'}</td>
+          `;
+          tableBody.appendChild(row);
+        });
+      } else if (type === 'fan') {
+        data.slice(0, limit).forEach((entry) => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${entry.id || 'N/A'}</td>
+            <td>${new Date(entry.timestamp).toLocaleString()}</td>
+            <td>${entry.status === 1 ? 'ON' : 'OFF'}</td>
+          `;
+          tableBody.appendChild(row);
+        });
+      }
+
+      if (data.length > 3) {
+        toggleButton.classList.add('visible');
+        toggleButton.textContent = showAll ? 'Show Less' : 'Show More';
+      } else {
+        toggleButton.classList.remove('visible');
+      }
+    }
+
+    function toggleHistory(type) {
+      tableStates[type] = !tableStates[type];
+      if (type === 'sensor') {
+        updateTable('sensor', sensorHistory, tableStates[type]);
+      } else if (type === 'led1') {
+        updateTable('led1', led1History, tableStates[type]);
+      } else if (type === 'motor') {
+        updateTable('motor', motorHistory, tableStates[type]);
+      } else if (type === 'fan') {
+        updateTable('fan', fanHistory, tableStates[type]);
+      }
+    }
+
+    function fetchSensorData() {
+      fetch("/sensor_data")
+        .then((response) => response.json())
+        .then((data) => {
+          document.getElementById("humidity").innerText =
+            data.humidity !== null ? data.humidity.toFixed(2) + "%" : "N/A";
+          document.getElementById("temperature").innerText =
+            data.temperature !== null
+              ? data.temperature.toFixed(2) + "°C"
+              : "N/A";
+          document.getElementById("light").innerText =
+            data.light !== null ? data.light : "N/A";
+          fetchHistoryData();
+        })
+        .catch((error) => {
+          console.error("Error fetching sensor data:", error);
+          showNotification('Error fetching sensor data', 'error');
+        });
+    }
+
+    function fetchHistoryData() {
+      fetch("/history")
+        .then((response) => response.json())
+        .then((data) => {
+          sensorHistory = data.sensors;
+          led1History = data.led1;
+          motorHistory = data.motor;
+          fanHistory = data.fan;
+          updateTable("sensor", sensorHistory, tableStates['sensor']);
+          updateTable("led1", led1History, tableStates['led1']);
+          updateTable("motor", motorHistory, tableStates['motor']);
+          updateTable("fan", fanHistory, tableStates['fan']);
+        })
+        .catch((error) => {
+          console.error("Error fetching history data:", error);
+          showNotification('Error fetching history data', 'error');
+        });
+    }
+
+    function fetchVisualizationData() {
+      fetch("/all_data_visualization")
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then((data) => {
+          if (data.status === 'error') {
+            console.error("Server error:", data.message);
+            showNotification(`Server error: ${data.message}`, 'error');
+            document.getElementById("statusMessage").textContent = `Server error: ${data.message}`;
+            document.getElementById("statusMessage").className = "status status--error";
+            return;
+          }
+
+          const validateTimestamps = (entries, valueKey) => {
+            if (!Array.isArray(entries)) {
+              console.warn(`Invalid data format for ${valueKey}:`, entries);
+              return [];
+            }
+
+            return entries.filter(entry => {
+              if (!entry || typeof entry !== 'object') {
+                console.warn(`Invalid entry detected:`, entry);
+                return false;
+              }
+
+              const timestamp = new Date(entry.timestamp);
+              const isValidTimestamp = !isNaN(timestamp.getTime());
+              const isValidValue = entry[valueKey] !== null && entry[valueKey] !== undefined && entry[valueKey] !== '';
+
+              if (!isValidTimestamp) console.warn(`Invalid timestamp detected: ${entry.timestamp}`);
+              if (!isValidValue) console.warn(`Invalid ${valueKey} detected: ${entry[valueKey]}`);
+
+              return isValidTimestamp && isValidValue;
+            });
+          };
+
+          const destroyChart = (chartKey) => {
+            if (chartInstances[chartKey]) {
+              chartInstances[chartKey].destroy();
+              chartInstances[chartKey] = null;
+            }
+          };
+
+          const getChartElement = (elementId) => {
+            const element = document.getElementById(elementId);
+            if (!element) {
+              console.error(`Chart element not found: ${elementId}`);
+              return null;
+            }
+            return element.getContext("2d");
+          };
+
+          const sensorData = validateTimestamps(data.sensors || [], 'temperature');
+          console.log("Sensor Data Length:", sensorData.length);
+
+          if (sensorData.length > 0) {
+            const sensorTimestamps = sensorData.map((entry) => new Date(entry.timestamp));
+            const temperatures = sensorData.map((entry) => parseFloat(entry.temperature));
+
+            destroyChart('temperatureChart');
+            const tempCtx = getChartElement("temperatureChart");
+            if (tempCtx) {
+              chartInstances.temperatureChart = new Chart(tempCtx, {
+                type: "line",
+                data: {
+                  labels: sensorTimestamps,
+                  datasets: [{
+                    label: "Temperature (°C)",
+                    data: temperatures,
+                    borderColor: "red",
+                    backgroundColor: "rgba(255, 0, 0, 0.1)",
+                    fill: true,
+                    tension: 0.1
+                  }],
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  layout: { padding: 10 },
+                  plugins: {
+                    legend: { display: false },
+                    title: {
+                      display: true,
+                      text: "Temperature Sensor",
+                      font: { size: 14 },
+                      padding: { top: 10, bottom: 10 }
+                    }
+                  },
+                  scales: {
+                    x: {
+                      type: "time",
+                      time: { 
+                        unit: "minute",
+                        timeZone: "Asia/Ho_Chi_Minh"
+                      },
+                      title: {
+                        display: true,
+                        text: "Time",
+                        font: { size: 12 },
+                        padding: 5
+                      }
+                    },
+                    y: {
+                      title: {
+                        display: true,
+                        text: "Temperature (°C)",
+                        font: { size: 12 },
+                        padding: 5
+                      },
+                      ticks: { stepSize: 0.5 }
+                    }
+                  }
+                }
+              });
+            }
+
+            const humidities = sensorData.map((entry) => parseFloat(entry.humidity));
+            destroyChart('humidityChart');
+            const humidityCtx = getChartElement("humidityChart");
+            if (humidityCtx) {
+              chartInstances.humidityChart = new Chart(humidityCtx, {
+                type: "line",
+                data: {
+                  labels: sensorTimestamps,
+                  datasets: [{
+                    label: "Humidity (%)",
+                    data: humidities,
+                    borderColor: "blue",
+                    backgroundColor: "rgba(0, 0, 255, 0.1)",
+                    fill: true,
+                    tension: 0.1
+                  }],
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  layout: { padding: 10 },
+                  plugins: {
+                    legend: { display: false },
+                    title: {
+                      display: true,
+                      text: "Humidity Sensor",
+                      font: { size: 14 },
+                      padding: { top: 10, bottom: 10 }
+                    }
+                  },
+                  scales: {
+                    x: {
+                      type: "time",
+                      time: { 
+                        unit: "minute",
+                        timeZone: "Asia/Ho_Chi_Minh"
+                      },
+                      title: {
+                        display: true,
+                        text: "Time",
+                        font: { size: 12 },
+                        padding: 5
+                      }
+                    },
+                    y: {
+                      title: {
+                        display: true,
+                        text: "Humidity (%)",
+                        font: { size: 12 },
+                        padding: 5
+                      },
+                      min: 0,
+                      max: 100,
+                      ticks: { stepSize: 10 }
+                    }
+                  }
+                }
+              });
+            }
+
+            const lightLevels = sensorData.map((entry) => parseFloat(entry.light_level));
+            destroyChart('lightChart');
+            const lightCtx = getChartElement("lightChart");
+            if (lightCtx) {
+              chartInstances.lightChart = new Chart(lightCtx, {
+                type: "line",
+                data: {
+                  labels: sensorTimestamps,
+                  datasets: [{
+                    label: "Light Level",
+                    data: lightLevels,
+                    borderColor: "green",
+                    backgroundColor: "rgba(0, 255, 0, 0.1)",
+                    fill: true,
+                    tension: 0.1
+                  }],
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  layout: { padding: 10 },
+                  plugins: {
+                    legend: { display: false },
+                    title: {
+                      display: true,
+                      text: "Light Sensor",
+                      font: { size: 14 },
+                      padding: { top: 10, bottom: 10 }
+                    }
+                  },
+                  scales: {
+                    x: {
+                      type: "time",
+                      time: { 
+                        unit: "minute",
+                        timeZone: "Asia/Ho_Chi_Minh"
+                      },
+                      title: {
+                        display: true,
+                        text: "Time",
+                        font: { size: 12 },
+                        padding: 5
+                      }
+                    },
+                    y: {
+                      title: {
+                        display: true,
+                        text: "Light Level",
+                        font: { size: 12 },
+                        padding: 5
+                      },
+                      ticks: { stepSize: 10 }
+                    }
+                  }
+                }
+              });
+            }
+          }
+
+          const led1Data = validateTimestamps(data.led1 || [], 'status');
+          if (led1Data.length > 0) {
+            const led1Timestamps = led1Data.map((entry) => new Date(entry.timestamp));
+            const led1Statuses = led1Data.map((entry) => parseInt(entry.status));
+
+            destroyChart('led1Chart');
+            const led1Ctx = getChartElement("led1Chart");
+            if (led1Ctx) {
+              chartInstances.led1Chart = new Chart(led1Ctx, {
+                type: "line",
+                data: {
+                  labels: led1Timestamps,
+                  datasets: [{
+                    label: "LED1 Status",
+                    data: led1Statuses,
+                    borderColor: "purple",
+                    backgroundColor: "rgba(128, 0, 128, 0.1)",
+                    fill: true,
+                    tension: 0,
+                    stepped: true
+                  }],
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  layout: { padding: 10 },
+                  plugins: {
+                    legend: { display: false },
+                    title: {
+                      display: true,
+                      text: "LED1 Status",
+                      font: { size: 14 },
+                      padding: { top: 10, bottom: 10 }
+                    }
+                  },
+                  scales: {
+                    x: {
+                      type: "time",
+                      time: { 
+                        unit: "minute",
+                        timeZone: "Asia/Ho_Chi_Minh"
+                      },
+                      title: {
+                        display: true,
+                        text: "Time",
+                        font: { size: 12 },
+                        padding: 5
+                      }
+                    },
+                    y: {
+                      title: {
+                        display: true,
+                        text: "Status (1=ON, 0=OFF)",
+                        font: { size: 12 },
+                        padding: 5
+                      },
+                      min: 0,
+                      max: 1,
+                      ticks: { stepSize: 1 }
+                    }
+                  }
+                }
+              });
+            }
+          }
+
+          const motorData = validateTimestamps(data.motor || [], 'direction');
+          if (motorData.length > 0) {
+            const motorTimestamps = motorData.map((entry) => new Date(entry.timestamp));
+            const motorDirections = motorData.map((entry) => {
+              if (entry.direction === 'forward') return 1;
+              if (entry.direction === 'backward') return -1;
+              return 0;
+            });
+
+            destroyChart('motorChart');
+            const motorCtx = getChartElement("motorChart");
+            if (motorCtx) {
+              chartInstances.motorChart = new Chart(motorCtx, {
+                type: "line",
+                data: {
+                  labels: motorTimestamps,
+                  datasets: [{
+                    label: "DC Motor Direction",
+                    data: motorDirections,
+                    borderColor: "teal",
+                    backgroundColor: "rgba(0, 128, 128, 0.1)",
+                    fill: true,
+                    tension: 0,
+                    stepped: true
+                  }],
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  layout: { padding: 10 },
+                  plugins: {
+                    legend: { display: false },
+                    title: {
+                      display: true,
+                      text: "DC Motor Direction",
+                      font: { size: 14 },
+                      padding: { top: 10, bottom: 10 }
+                    }
+                  },
+                  scales: {
+                    x: {
+                      type: "time",
+                      time: { 
+                        unit: "minute",
+                        timeZone: "Asia/Ho_Chi_Minh"
+                      },
+                      title: {
+                        display: true,
+                        text: "Time",
+                        font: { size: 12 },
+                        padding: 5
+                      }
+                    },
+                    y: {
+                      title: {
+                        display: true,
+                        text: "Direction (1=Forward, -1=Backward, 0=Stop)",
+                        font: { size: 12 },
+                        padding: 5
+                      },
+                      min: -1,
+                      max: 1,
+                      ticks: { stepSize: 1 }
+                    }
+                  }
+                }
+              });
+            }
+          }
+
+          const fanData = validateTimestamps(data.fan || [], 'status');
+          if (fanData.length > 0) {
+            const fanTimestamps = fanData.map((entry) => new Date(entry.timestamp));
+            const fanStatuses = fanData.map((entry) => parseInt(entry.status));
+
+            destroyChart('fanChart');
+            const fanCtx = getChartElement("fanChart");
+            if (fanCtx) {
+              chartInstances.fanChart = new Chart(fanCtx, {
+                type: "line",
+                data: {
+                  labels: fanTimestamps,
+                  datasets: [{
+                    label: "Fan Status",
+                    data: fanStatuses,
+                    borderColor: "cyan",
+                    backgroundColor: "rgba(0, 255, 255, 0.1)",
+                    fill: true,
+                    tension: 0,
+                    stepped: true
+                  }],
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  layout: { padding: 10 },
+                  plugins: {
+                    legend: { display: false },
+                    title: {
+                      display: true,
+                      text: "Fan Status",
+                      font: { size: 14 },
+                      padding: { top: 10, bottom: 10 }
+                    }
+                  },
+                  scales: {
+                    x: {
+                      type: "time",
+                      time: { 
+                        unit: "minute",
+                        timeZone: "Asia/Ho_Chi_Minh"
+                      },
+                      title: {
+                        display: true,
+                        text: "Time",
+                        font: { size: 12 },
+                        padding: 5
+                      }
+                    },
+                    y: {
+                      title: {
+                        display: true,
+                        text: "Status (1=ON, 0=OFF)",
+                        font: { size: 12 },
+                        padding: 5
+                      },
+                      min: 0,
+                      max: 1,
+                      ticks: { stepSize: 1 }
+                    }
+                  }
+                }
+              });
+            }
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching visualization data:", error);
+          showNotification(`Error fetching visualization data: ${error.message}`, 'error');
+          document.getElementById("statusMessage").textContent = `Error fetching visualization data: ${error.message}`;
+          document.getElementById("statusMessage").className = "status status--error";
+        });
+    }
+
+    function controlLight(action, deviceId) {
+      fetch("/control_led", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, device_id: deviceId }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          const status = document.getElementById("statusMessage");
+          if (data.status === "success") {
+            showNotification(`LED1 ${action.includes("on") ? "turned ON" : "turned OFF"} successfully!`, 'success');
+            status.textContent = `LED1 ${action.includes("on") ? "turned ON" : "turned OFF"} successfully!`;
+            status.className = "status status--success";
+            fetchHistoryData();
+            fetchVisualizationData();
+          } else {
+            showNotification(`Error: ${data.message || "Unknown error"}`, 'error');
+            status.textContent = `Error: ${data.message || "Unknown error"}`;
+            status.className = "status status--error";
+          }
+        })
+        .catch((error) => {
+          showNotification('Network error', 'error');
+          const status = document.getElementById("statusMessage");
+          status.textContent = `Network error`;
+          status.className = "status status--error";
+          console.error("Error controlling light:", error);
+        });
+    }
+
+    function controlMotor(direction) {
+      fetch("/control_motor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: direction }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          const status = document.getElementById("statusMessage");
+          if (data.status === "success") {
+            showNotification(`DC Motor set to ${direction} successfully!`, 'success');
+            status.textContent = `DC Motor set to ${direction} successfully!`;
+            status.className = "status status--success";
+            fetchHistoryData();
+            fetchVisualizationData();
+          } else {
+            showNotification(`Error: ${data.message || "Unknown error"}`, 'error');
+            status.textContent = `Error: ${data.message || "Unknown error"}`;
+            status.className = "status status--error";
+          }
+        })
+        .catch((error) => {
+          showNotification('Network error', 'error');
+          const status = document.getElementById("statusMessage");
+          status.textContent = `Network error`;
+          status.className = "status status--error";
+          console.error("Error controlling motor:", error);
+        });
+    }
+
+    function controlFan(action) {
+      fetch("/control_fan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: action }),
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          const status = document.getElementById("statusMessage");
+          if (data.status === "success") {
+            showNotification(`Fan ${action === "on" ? "turned ON" : "turned OFF"} successfully!`, 'success');
+            status.textContent = `Fan ${action === "on" ? "turned ON" : "turned OFF"} successfully!`;
+            status.className = "status status--success";
+            fetchHistoryData();
+            fetchVisualizationData();
+          } else {
+            showNotification(`Error: ${data.message || "Unknown error"}`, 'error');
+            status.textContent = `Error: ${data.message || "Unknown error"}`;
+            status.className = "status status--error";
+          }
+        })
+        .catch((error) => {
+          showNotification('Network error', 'error');
+          const status = document.getElementById("statusMessage");
+          status.textContent = `Network error`;
+          status.className = "status status--error";
+          console.error("Error controlling fan:", error);
+        });
+    }
+
+    // Initialize dashboard
+    fetchSensorData();
+    fetchHistoryData();
+    fetchVisualizationData();
+    setInterval(fetchSensorData, 5000);
+    setInterval(fetchVisualizationData, 60000);
+  </script>
+</body>
+</html>

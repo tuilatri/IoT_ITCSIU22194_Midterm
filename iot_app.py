@@ -19,21 +19,14 @@ logging.basicConfig(
     ]
 )
 
-# Function to generate a secure secret key
-def generate_secret_key():
-    key = secrets.token_hex(24)  # Generate a 48-character (24-byte) secure key
-    app.logger.info(f"Generated secret key: {key}")
-    print(f"SECRET KEY: {key}")  # Fallback to ensure visibility in console
-    return key
-
-# Set the secret key for the Flask app
-app.secret_key = generate_secret_key()
+# Set a fixed secret key for session persistence
+app.secret_key = '3427c80e7f70ff707e1031e191d47470539ad370d9481692'  # Replace with a secure key
 
 # MQTT Configuration
 mqttBroker = "iot-dashboard.cloud.shiftr.io"
 mqttUser = "iot-dashboard"
 mqttPassword = "YBxsZiVmkHljoCId"
-mqttClient = mqtt.Client(client_id="", protocol=mqtt.MQTTv5)  # Use MQTTv5 to avoid deprecation warning
+mqttClient = mqtt.Client(client_id="", protocol=mqtt.MQTTv5)
 
 mqttClient.username_pw_set(mqttUser, mqttPassword)
 
@@ -248,8 +241,8 @@ def logout():
     session.pop('user_id', None)
     return redirect(url_for('login'))
 
-@app.route('/control', methods=['POST'])
-def control():
+@app.route('/control_led', methods=['POST'])
+def control_led():
     if 'user_id' not in session:
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     action = request.json.get('action')
@@ -261,7 +254,7 @@ def control():
         store_light_status(action, device_id)
         return jsonify({'status': 'success'})
     except Exception as e:
-        app.logger.error(f"Error in control route: {e}")
+        app.logger.error(f"Error in control_led route: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/control_fan', methods=['POST'])
@@ -313,6 +306,98 @@ def get_sensor_data():
         })
     except Exception as e:
         app.logger.error(f"Error in sensor_data route: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/history')
+def get_history():
+    if 'user_id' not in session:
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+    try:
+        conn = sqlite3.connect('iot_data.db')
+        cursor = conn.cursor()
+        
+        # Fetch sensor data
+        cursor.execute("SELECT id, timestamp, humidity, temperature FROM temperature_humidity_data ORDER BY timestamp DESC")
+        temp_hum_data = cursor.fetchall()
+        cursor.execute("SELECT id, timestamp, light_level FROM light_sensor_data ORDER BY timestamp DESC")
+        light_data = cursor.fetchall()
+        
+        # Combine sensor data by timestamp
+        sensors = []
+        for th, l in zip(temp_hum_data, light_data):
+            sensors.append({
+                'id': th[0],
+                'timestamp': th[1],
+                'humidity': th[2],
+                'temperature': th[3],
+                'light_level': l[2]
+            })
+        
+        # Fetch LED, fan, and motor data
+        cursor.execute("SELECT id, timestamp, status FROM relay_lights_status WHERE device_id = 1 ORDER BY timestamp DESC")
+        led1 = [{'id': row[0], 'timestamp': row[1], 'status': row[2]} for row in cursor.fetchall()]
+        
+        cursor.execute("SELECT id, timestamp, status FROM relay_fans_status WHERE device_id = 6 ORDER BY timestamp DESC")
+        fan = [{'id': row[0], 'timestamp': row[1], 'status': row[2]} for row in cursor.fetchall()]
+        
+        cursor.execute("SELECT id, timestamp, direction FROM dc_motor_status WHERE device_id = 3 ORDER BY timestamp DESC")
+        motor = [{'id': row[0], 'timestamp': row[1], 'direction': row[2]} for row in cursor.fetchall()]
+        
+        conn.close()
+        return jsonify({
+            'sensors': sensors,
+            'led1': led1,
+            'fan': fan,
+            'motor': motor
+        })
+    except Exception as e:
+        app.logger.error(f"Error in history route: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/all_data_visualization')
+def get_all_data_visualization():
+    if 'user_id' not in session:
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+    try:
+        conn = sqlite3.connect('iot_data.db')
+        cursor = conn.cursor()
+        
+        # Fetch sensor data
+        cursor.execute("SELECT id, timestamp, humidity, temperature FROM temperature_humidity_data ORDER BY timestamp DESC")
+        temp_hum_data = cursor.fetchall()
+        cursor.execute("SELECT id, timestamp, light_level FROM light_sensor_data ORDER BY timestamp DESC")
+        light_data = cursor.fetchall()
+        
+        # Combine sensor data by timestamp
+        sensors = []
+        for th, l in zip(temp_hum_data, light_data):
+            sensors.append({
+                'id': th[0],
+                'timestamp': th[1],
+                'humidity': th[2],
+                'temperature': th[3],
+                'light_level': l[2]
+            })
+        
+        # Fetch LED, fan, and motor data
+        cursor.execute("SELECT id, timestamp, status FROM relay_lights_status WHERE device_id = 1 ORDER BY timestamp DESC")
+        led1 = [{'id': row[0], 'timestamp': row[1], 'status': row[2]} for row in cursor.fetchall()]
+        
+        cursor.execute("SELECT id, timestamp, status FROM relay_fans_status WHERE device_id = 6 ORDER BY timestamp DESC")
+        fan = [{'id': row[0], 'timestamp': row[1], 'status': row[2]} for row in cursor.fetchall()]
+        
+        cursor.execute("SELECT id, timestamp, direction FROM dc_motor_status WHERE device_id = 3 ORDER BY timestamp DESC")
+        motor = [{'id': row[0], 'timestamp': row[1], 'direction': row[2]} for row in cursor.fetchall()]
+        
+        conn.close()
+        return jsonify({
+            'sensors': sensors,
+            'led1': led1,
+            'fan': fan,
+            'motor': motor
+        })
+    except Exception as e:
+        app.logger.error(f"Error in all_data_visualization route: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # Start Flask App + MQTT

@@ -35,7 +35,7 @@
       --background: #1a1a1a;
       --card-background: #2d2d2d;
       --text-primary: #ffffff;
-      --text-secondary: #b0b.0b0;
+      --text-secondary: #b0b0b0;
       --button-background: #64b5f6;
       --button-background-hover: #4a90e2;
       --status-background: #3a3a3a;
@@ -70,7 +70,7 @@
 
     .header__content {
       display: flex;
-      justify-content: center;
+      justify-content: space-between;
       align-items: center;
       gap: 5px;
       max-width: 1200px;
@@ -97,6 +97,27 @@
 
     .header__subtitle {
       font-size: 1rem;
+      opacity: 0.8;
+    }
+
+    .header__actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .theme-toggle,
+    .logout-button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1.2rem;
+      color: #ffffff;
+      padding: 8px;
+      transition: opacity 0.3s ease;
+    }
+
+    .theme-toggle:hover,
+    .logout-button:hover {
       opacity: 0.8;
     }
 
@@ -143,24 +164,10 @@
       font-weight: 600;
     }
 
-    .theme-toggle {
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-size: 1.2rem;
-      color: var(--text-primary);
-      padding: 8px;
-    }
-
-    .theme-toggle:hover {
-      opacity: 0.8;
-    }
-
     .sensor-data {
       background: rgba(0, 0, 0, 0.05);
       border-radius: 12px;
       padding: 16px;
-      /* margin: 5px; */
       margin-bottom: 24px;
       text-align: center;
     }
@@ -340,7 +347,7 @@
     }
 
     .history__toggle {
-      display: block;
+      display: none; /* Hidden by default */
       margin: 12px auto 0;
       padding: 8px 16px;
       font-size: 0.9rem;
@@ -351,6 +358,10 @@
       background: var(--button-background);
       color: #ffffff;
       transition: background 0.3s ease;
+    }
+
+    .history__toggle.visible {
+      display: block; /* Show when there are more than 3 rows */
     }
 
     .history__toggle:hover {
@@ -414,6 +425,35 @@
 
     .footer__text {
       font-size: 0.9rem;
+    }
+
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      color: #ffffff;
+      font-size: 0.9rem;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      opacity: 0;
+      transform: translateY(-20px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      z-index: 1000;
+    }
+
+    .notification.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .notification.success {
+      background: #2e7d32;
+    }
+
+    .notification.error {
+      background: #c62828;
     }
 
     @media (max-width: 1024px) {
@@ -490,12 +530,29 @@
         font-size: 0.8rem;
       }
 
+      .header__actions {
+        gap: 4px;
+      }
+
+      .theme-toggle,
+      .logout-button {
+        font-size: 1rem;
+        padding: 6px;
+      }
+
       .visualization__chart-container {
         height: 300px;
       }
 
       .visualization__chart-title {
         font-size: 0.9rem;
+      }
+
+      .notification {
+        top: 10px;
+        right: 10px;
+        padding: 10px 20px;
+        font-size: 0.8rem;
       }
 
       .history__table#sensorTable th:nth-child(1),
@@ -543,10 +600,20 @@
 <body class="theme--light">
   <header class="header">
     <div class="header__content">
-      <img src="../static/images/iu_logo.png" alt="IoT Logo" class="header__image" />
-      <div class="header__text">
-        <span class="header__title">IoT Control Dashboard</span>
-        <span class="header__subtitle">Smart Home Automation System</span>
+      <div style="display: flex; align-items: center; gap: 5px;">
+        <img src="../static/images/iu_logo.png" alt="IoT Logo" class="header__image" />
+        <div class="header__text">
+          <span class="header__title">IoT Control Dashboard</span>
+          <span class="header__subtitle">Smart Home Automation System</span>
+        </div>
+      </div>
+      <div class="header__actions">
+        <button class="theme-toggle" onclick="toggleTheme()">
+          <i class="fas fa-moon"></i>
+        </button>
+        <button class="logout-button" onclick="logout()">
+          <i class="fas fa-sign-out-alt"></i>
+        </button>
       </div>
     </div>
   </header>
@@ -556,9 +623,6 @@
       <div class="dashboard">
         <div class="dashboard__header">
           <h1 class="dashboard__title">Control Panel</h1>
-          <button class="theme-toggle" onclick="toggleTheme()">
-            <i class="fas fa-moon"></i>
-          </button>
         </div>
 
         <div class="sensor-data">
@@ -744,6 +808,8 @@
     </div>
   </div>
 
+  <div id="notification" class="notification"></div>
+
   <footer class="footer">
     <p class="footer__text">
       Developed by Ha Minh Tri (ITCSIU22194) under the supervision of M.Eng. Vo
@@ -757,6 +823,12 @@
     let motorHistory = [];
     let fanHistory = [];
     let chartInstances = {};
+    let tableStates = {
+      sensor: false,
+      led1: false,
+      motor: false,
+      fan: false
+    };
 
     function toggleTheme() {
       document.body.classList.toggle('theme--dark');
@@ -766,12 +838,44 @@
       themeIcon.classList.toggle('fa-sun');
     }
 
-    function updateTable(type, data) {
+    function showNotification(message, type) {
+      const notification = document.getElementById('notification');
+      notification.textContent = message;
+      notification.className = `notification ${type} show`;
+      setTimeout(() => {
+        notification.className = 'notification';
+      }, 3000);
+    }
+
+    function logout() {
+      fetch('/logout', {
+        method: 'GET',
+      })
+        .then((response) => {
+          if (response.redirected) {
+            showNotification('Logout successful! Redirecting...', 'success');
+            setTimeout(() => {
+              window.location.href = response.url;
+            }, 1000);
+          } else {
+            return response.json().then(data => {
+              throw new Error(data.message || 'Logout failed');
+            });
+          }
+        })
+        .catch((error) => {
+          showNotification(`Error: ${error.message || 'Unknown error'}`, 'error');
+          console.error('Error during logout:', error);
+        });
+    }
+
+    function updateTable(type, data, showAll = false) {
       const tableBody = document.getElementById(`${type}TableBody`);
-      if (!tableBody || !data) return;
+      const toggleButton = document.getElementById(`${type}Toggle`);
+      if (!tableBody || !data || !toggleButton) return;
 
       tableBody.innerHTML = '';
-      const limit = document.getElementById(`${type}Toggle`)?.textContent.includes('More') ? 5 : data.length;
+      const limit = showAll ? data.length : Math.min(3, data.length);
 
       if (type === 'sensor') {
         data.slice(0, limit).forEach((entry) => {
@@ -817,17 +921,25 @@
         });
       }
 
-      const toggleButton = document.getElementById(`${type}Toggle`);
-      if (toggleButton) {
-        toggleButton.textContent = limit < data.length ? 'Show More' : 'Show Less';
+      if (data.length > 3) {
+        toggleButton.classList.add('visible');
+        toggleButton.textContent = showAll ? 'Show Less' : 'Show More';
+      } else {
+        toggleButton.classList.remove('visible');
       }
     }
 
     function toggleHistory(type) {
-      if (type === 'sensor') updateTable('sensor', sensorHistory);
-      else if (type === 'led1') updateTable('led1', led1History);
-      else if (type === 'motor') updateTable('motor', motorHistory);
-      else if (type === 'fan') updateTable('fan', fanHistory);
+      tableStates[type] = !tableStates[type];
+      if (type === 'sensor') {
+        updateTable('sensor', sensorHistory, tableStates[type]);
+      } else if (type === 'led1') {
+        updateTable('led1', led1History, tableStates[type]);
+      } else if (type === 'motor') {
+        updateTable('motor', motorHistory, tableStates[type]);
+      } else if (type === 'fan') {
+        updateTable('fan', fanHistory, tableStates[type]);
+      }
     }
 
     function fetchSensorData() {
@@ -846,6 +958,7 @@
         })
         .catch((error) => {
           console.error("Error fetching sensor data:", error);
+          showNotification('Error fetching sensor data', 'error');
         });
     }
 
@@ -857,13 +970,14 @@
           led1History = data.led1;
           motorHistory = data.motor;
           fanHistory = data.fan;
-          updateTable("sensor", sensorHistory);
-          updateTable("led1", led1History);
-          updateTable("motor", motorHistory);
-          updateTable("fan", fanHistory);
+          updateTable("sensor", sensorHistory, tableStates['sensor']);
+          updateTable("led1", led1History, tableStates['led1']);
+          updateTable("motor", motorHistory, tableStates['motor']);
+          updateTable("fan", fanHistory, tableStates['fan']);
         })
         .catch((error) => {
           console.error("Error fetching history data:", error);
+          showNotification('Error fetching history data', 'error');
         });
     }
 
@@ -878,6 +992,7 @@
         .then((data) => {
           if (data.status === 'error') {
             console.error("Server error:", data.message);
+            showNotification(`Server error: ${data.message}`, 'error');
             document.getElementById("statusMessage").textContent = `Server error: ${data.message}`;
             document.getElementById("statusMessage").className = "status status--error";
             return;
@@ -1309,13 +1424,14 @@
         })
         .catch((error) => {
           console.error("Error fetching visualization data:", error);
+          showNotification(`Error fetching visualization data: ${error.message}`, 'error');
           document.getElementById("statusMessage").textContent = `Error fetching visualization data: ${error.message}`;
           document.getElementById("statusMessage").className = "status status--error";
         });
     }
 
     function controlLight(action, deviceId) {
-      fetch("/control", {
+      fetch("/control_led", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, device_id: deviceId }),
@@ -1324,16 +1440,19 @@
         .then((data) => {
           const status = document.getElementById("statusMessage");
           if (data.status === "success") {
+            showNotification(`LED1 ${action.includes("on") ? "turned ON" : "turned OFF"} successfully!`, 'success');
             status.textContent = `LED1 ${action.includes("on") ? "turned ON" : "turned OFF"} successfully!`;
             status.className = "status status--success";
             fetchHistoryData();
             fetchVisualizationData();
           } else {
+            showNotification(`Error: ${data.message || "Unknown error"}`, 'error');
             status.textContent = `Error: ${data.message || "Unknown error"}`;
             status.className = "status status--error";
           }
         })
         .catch((error) => {
+          showNotification('Network error', 'error');
           const status = document.getElementById("statusMessage");
           status.textContent = `Network error`;
           status.className = "status status--error";
@@ -1351,16 +1470,19 @@
         .then((data) => {
           const status = document.getElementById("statusMessage");
           if (data.status === "success") {
+            showNotification(`DC Motor set to ${direction} successfully!`, 'success');
             status.textContent = `DC Motor set to ${direction} successfully!`;
             status.className = "status status--success";
             fetchHistoryData();
             fetchVisualizationData();
           } else {
+            showNotification(`Error: ${data.message || "Unknown error"}`, 'error');
             status.textContent = `Error: ${data.message || "Unknown error"}`;
             status.className = "status status--error";
           }
         })
         .catch((error) => {
+          showNotification('Network error', 'error');
           const status = document.getElementById("statusMessage");
           status.textContent = `Network error`;
           status.className = "status status--error";
@@ -1378,16 +1500,19 @@
         .then((data) => {
           const status = document.getElementById("statusMessage");
           if (data.status === "success") {
+            showNotification(`Fan ${action === "on" ? "turned ON" : "turned OFF"} successfully!`, 'success');
             status.textContent = `Fan ${action === "on" ? "turned ON" : "turned OFF"} successfully!`;
             status.className = "status status--success";
             fetchHistoryData();
             fetchVisualizationData();
           } else {
+            showNotification(`Error: ${data.message || "Unknown error"}`, 'error');
             status.textContent = `Error: ${data.message || "Unknown error"}`;
             status.className = "status status--error";
           }
         })
         .catch((error) => {
+          showNotification('Network error', 'error');
           const status = document.getElementById("statusMessage");
           status.textContent = `Network error`;
           status.className = "status status--error";

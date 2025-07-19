@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime
 import logging
 from werkzeug.security import generate_password_hash, check_password_hash
+import random
 
 app = Flask(__name__)
 
@@ -23,7 +24,7 @@ app.secret_key = '3427c80e7f70ff707e1031e191d47470539ad370d9481692'
 mqttBroker = "iot-dashboard.cloud.shiftr.io"
 mqttUser = "iot-dashboard"
 mqttPassword = "YBxsZiVmkHljoCId"
-mqttClient = mqtt.Client(client_id="iot-dashboard-08122004", protocol=mqtt.MQTTv311)
+mqttClient = mqtt.Client(client_id=f"iot-dashboard-{random.randint(0, 10000)}", protocol=mqtt.MQTTv311)
 
 mqttClient.username_pw_set(mqttUser, mqttPassword)
 
@@ -156,6 +157,15 @@ def store_light_status(action, device_id):
         conn = sqlite3.connect('iot_data.db')
         cursor = conn.cursor()
         cursor.execute(
+            "SELECT status, timestamp FROM relay_lights_status WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+            (device_id,)
+        )
+        last_entry = cursor.fetchone()
+        if last_entry and (datetime.now() - datetime.fromisoformat(last_entry[1])).total_seconds() < 1:
+            if last_entry[0] == (1 if action == 'ON' else 0):
+                app.logger.debug(f"Skipping duplicate light status: {action} for device {device_id}")
+                return
+        cursor.execute(
             "INSERT INTO relay_lights_status (device_id, timestamp, status) VALUES (?, ?, ?)",
             (device_id, datetime.now().isoformat(), 1 if action == 'ON' else 0)
         )
@@ -170,6 +180,15 @@ def store_fan_status(action):
         conn = sqlite3.connect('iot_data.db')
         cursor = conn.cursor()
         cursor.execute(
+            "SELECT status, timestamp FROM relay_fans_status WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+            (6,)
+        )
+        last_entry = cursor.fetchone()
+        if last_entry and (datetime.now() - datetime.fromisoformat(last_entry[1])).total_seconds() < 1:
+            if last_entry[0] == (1 if action == 'ON' else 0):
+                app.logger.debug(f"Skipping duplicate fan status: {action}")
+                return
+        cursor.execute(
             "INSERT INTO relay_fans_status (device_id, timestamp, status) VALUES (?, ?, ?)",
             (6, datetime.now().isoformat(), 1 if action == 'ON' else 0)
         )
@@ -183,6 +202,15 @@ def store_motor_status(direction):
     try:
         conn = sqlite3.connect('iot_data.db')
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT direction, timestamp FROM dc_motor_status WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+            (3,)
+        )
+        last_entry = cursor.fetchone()
+        if last_entry and (datetime.now() - datetime.fromisoformat(last_entry[1])).total_seconds() < 1:
+            if last_entry[0] == direction.lower():
+                app.logger.debug(f"Skipping duplicate motor status: {direction}")
+                return
         cursor.execute(
             "INSERT INTO dc_motor_status (device_id, timestamp, direction) VALUES (?, ?, ?)",
             (3, datetime.now().isoformat(), direction)
@@ -252,7 +280,6 @@ def control_led():
         return jsonify({'status': 'error', 'message': 'Invalid action or device_id'}), 400
     try:
         mqttClient.publish("home/control/light", action, qos=1)
-        store_light_status(action, device_id)
         return jsonify({'status': 'success'})
     except Exception as e:
         app.logger.error(f"Error in control_led route: {e}")
@@ -267,7 +294,6 @@ def control_fan():
         return jsonify({'status': 'error', 'message': 'Invalid fan action'}), 400
     try:
         mqttClient.publish("home/control/fan", action, qos=1)
-        store_fan_status(action)
         return jsonify({'status': 'success'})
     except Exception as e:
         app.logger.error(f"Error in control_fan route: {e}")
@@ -282,7 +308,6 @@ def control_motor():
         return jsonify({'status': 'error', 'message': 'Invalid motor action'}), 400
     try:
         mqttClient.publish("home/control/motor", action, qos=1)
-        store_motor_status(action.lower())
         return jsonify({'status': 'success'})
     except Exception as e:
         app.logger.error(f"Error in control_motor route: {e}")
@@ -406,4 +431,4 @@ if __name__ == '__main__':
         logging.info("MQTT client started")
     except Exception as e:
         app.logger.error(f"MQTT connection failed: {e}")
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000)

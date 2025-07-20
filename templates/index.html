@@ -655,10 +655,10 @@
         <div class="controls__section">
           <h2 class="controls__section-title">LED Control</h2>
           <div class="controls-grid">
-            <button class="controls__button" onclick="controlLight('led1_on', 1)">
+            <button class="controls__button" onclick="controlLight('ON', 1)">
               <i class="fas fa-lightbulb"></i> LED1 ON
             </button>
-            <button class="controls__button" onclick="controlLight('led1_off', 1)">
+            <button class="controls__button" onclick="controlLight('OFF', 1)">
               <i class="fas fa-lightbulb"></i> LED1 OFF
             </button>
           </div>
@@ -932,13 +932,13 @@
     function toggleHistory(type) {
       tableStates[type] = !tableStates[type];
       if (type === 'sensor') {
-        updateTable('sensor', sensorHistory, tableStates[type]);
+        updateTable('sensor', sensorHistory, tableStates['sensor']);
       } else if (type === 'led1') {
-        updateTable('led1', led1History, tableStates[type]);
+        updateTable('led1', led1History, tableStates['led1']);
       } else if (type === 'motor') {
-        updateTable('motor', motorHistory, tableStates[type]);
+        updateTable('motor', motorHistory, tableStates['motor']);
       } else if (type === 'fan') {
-        updateTable('fan', fanHistory, tableStates[type]);
+        updateTable('fan', fanHistory, tableStates['fan']);
       }
     }
 
@@ -1037,12 +1037,12 @@
             return element.getContext("2d");
           };
 
-          const sensorData = validateTimestamps(data.sensors || [], 'temperature');
-          console.log("Sensor Data Length:", sensorData.length);
-
-          if (sensorData.length > 0) {
-            const sensorTimestamps = sensorData.map((entry) => new Date(entry.timestamp));
-            const temperatures = sensorData.map((entry) => parseFloat(entry.temperature));
+          // Process temperature data
+          const tempData = validateTimestamps(data.sensors || [], 'temperature');
+          console.log("Temperature Data Length:", tempData.length);
+          if (tempData.length > 0) {
+            const tempTimestamps = tempData.map((entry) => new Date(entry.timestamp));
+            const temperatures = tempData.map((entry) => parseFloat(entry.temperature));
 
             destroyChart('temperatureChart');
             const tempCtx = getChartElement("temperatureChart");
@@ -1050,7 +1050,7 @@
               chartInstances.temperatureChart = new Chart(tempCtx, {
                 type: "line",
                 data: {
-                  labels: sensorTimestamps,
+                  labels: tempTimestamps,
                   datasets: [{
                     label: "Temperature (°C)",
                     data: temperatures,
@@ -1100,15 +1100,22 @@
                 }
               });
             }
+          }
 
-            const humidities = sensorData.map((entry) => parseFloat(entry.humidity));
+          // Process humidity data
+          const humidityData = validateTimestamps(data.sensors || [], 'humidity');
+          console.log("Humidity Data Length:", humidityData.length);
+          if (humidityData.length > 0) {
+            const humidityTimestamps = humidityData.map((entry) => new Date(entry.timestamp));
+            const humidities = humidityData.map((entry) => parseFloat(entry.humidity));
+
             destroyChart('humidityChart');
             const humidityCtx = getChartElement("humidityChart");
             if (humidityCtx) {
               chartInstances.humidityChart = new Chart(humidityCtx, {
                 type: "line",
                 data: {
-                  labels: sensorTimestamps,
+                  labels: humidityTimestamps,
                   datasets: [{
                     label: "Humidity (%)",
                     data: humidities,
@@ -1160,15 +1167,22 @@
                 }
               });
             }
+          }
 
-            const lightLevels = sensorData.map((entry) => parseFloat(entry.light_level));
+          // Process light data
+          const lightData = validateTimestamps(data.sensors || [], 'light_level');
+          console.log("Light Data Length:", lightData.length);
+          if (lightData.length > 0) {
+            const lightTimestamps = lightData.map((entry) => new Date(entry.timestamp));
+            const lightLevels = lightData.map((entry) => parseFloat(entry.light_level));
+
             destroyChart('lightChart');
             const lightCtx = getChartElement("lightChart");
             if (lightCtx) {
               chartInstances.lightChart = new Chart(lightCtx, {
                 type: "line",
                 data: {
-                  labels: sensorTimestamps,
+                  labels: lightTimestamps,
                   datasets: [{
                     label: "Light Level",
                     data: lightLevels,
@@ -1220,6 +1234,7 @@
             }
           }
 
+          // Process LED1 data
           const led1Data = validateTimestamps(data.led1 || [], 'status');
           if (led1Data.length > 0) {
             const led1Timestamps = led1Data.map((entry) => new Date(entry.timestamp));
@@ -1286,12 +1301,13 @@
             }
           }
 
+          // Process motor data
           const motorData = validateTimestamps(data.motor || [], 'direction');
           if (motorData.length > 0) {
             const motorTimestamps = motorData.map((entry) => new Date(entry.timestamp));
             const motorDirections = motorData.map((entry) => {
-              if (entry.direction === 'forward') return 1;
-              if (entry.direction === 'backward') return -1;
+              if (entry.direction.toLowerCase() === 'forward') return 1;
+              if (entry.direction.toLowerCase() === 'backward') return -1;
               return 0;
             });
 
@@ -1356,6 +1372,7 @@
             }
           }
 
+          // Process fan data
           const fanData = validateTimestamps(data.fan || [], 'status');
           if (fanData.length > 0) {
             const fanTimestamps = fanData.map((entry) => new Date(entry.timestamp));
@@ -1431,17 +1448,18 @@
     }
 
     function controlLight(action, deviceId) {
+      const validAction = action === 'ON' ? 'ON' : 'OFF'; // Ensure action is 'ON' or 'OFF'
       fetch("/control_led", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, device_id: deviceId }),
+        body: JSON.stringify({ action: validAction, device_id: deviceId }),
       })
         .then((response) => response.json())
         .then((data) => {
           const status = document.getElementById("statusMessage");
           if (data.status === "success") {
-            showNotification(`LED1 ${action.includes("on") ? "turned ON" : "turned OFF"} successfully!`, 'success');
-            status.textContent = `LED1 ${action.includes("on") ? "turned ON" : "turned OFF"} successfully!`;
+            showNotification(`LED1 ${validAction.toLowerCase()} successfully!`, 'success');
+            status.textContent = `LED1 ${validAction.toLowerCase()} successfully!`;
             status.className = "status status--success";
             fetchHistoryData();
             fetchVisualizationData();
@@ -1464,7 +1482,7 @@
       fetch("/control_motor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: direction }),
+        body: JSON.stringify({ action: direction.toUpperCase() }),
       })
         .then((response) => response.json())
         .then((data) => {
@@ -1494,7 +1512,7 @@
       fetch("/control_fan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: action }),
+        body: JSON.stringify({ action: action.toUpperCase() }),
       })
         .then((response) => response.json())
         .then((data) => {

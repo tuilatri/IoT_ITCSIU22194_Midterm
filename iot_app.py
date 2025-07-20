@@ -10,23 +10,21 @@ import secrets
 
 app = Flask(__name__)
 
-# Configure logging to ensure console output
+# Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()  # Ensure logs go to console
-    ]
+    handlers=[logging.StreamHandler()]
 )
 
 # Set a fixed secret key for session persistence
-app.secret_key = '3427c80e7f70ff707e1031e191d47470539ad370d9481692'  # Replace with a secure key
+app.secret_key = '3427c80e7f70ff707e1031e191d47470539ad370d9481692'
 
 # MQTT Configuration
-mqttBroker = "iot-dashboard.cloud.shiftr.io"
-mqttUser = "iot-dashboard"
+mqttBroker = "iot-dashboard-02.cloud.shiftr.io"
+mqttUser = "iot-dashboard-02"
 mqttPassword = "YBxsZiVmkHljoCId"
-mqttClient = mqtt.Client(client_id="", protocol=mqtt.MQTTv5)
+mqttClient = mqtt.Client(client_id=f"iot-dashboard-{secrets.token_hex(8)}", protocol=mqtt.MQTTv311)  # Updated to MQTTv5
 
 mqttClient.username_pw_set(mqttUser, mqttPassword)
 
@@ -51,20 +49,12 @@ def init_db():
         )
     ''')
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS temperature_humidity_data (
+        CREATE TABLE IF NOT EXISTS sensor_data (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             device_id INTEGER,
             timestamp TEXT,
             humidity REAL,
             temperature REAL,
-            FOREIGN KEY(device_id) REFERENCES devices(id)
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS light_sensor_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_id INTEGER,
-            timestamp TEXT,
             light_level REAL,
             FOREIGN KEY(device_id) REFERENCES devices(id)
         )
@@ -99,16 +89,102 @@ def init_db():
     conn.commit()
     conn.close()
 
-# MQTT Sensor Data Handler
+# MQTT Callbacks
+def on_connect(client, userdata, flags, reason_code, properties=None):
+    if reason_code == 0:
+        app.logger.info("Connected to MQTT Broker!")
+        client.subscribe("home/sensors/temperature", qos=1)
+        client.subscribe("home/sensors/humidity", qos=1)
+        client.subscribe("home/sensors/light", qos=1)
+        client.subscribe("home/control/light", qos=1)
+        client.subscribe("home/control/fan", qos=1)
+        client.subscribe("home/control/motor", qos=1)
+    else:
+        app.logger.error(f"Failed to connect, return code {reason_code}")
+
+# Global variables to store sensor data temporarily
+latest_sensor_data = {'temperature': None, 'humidity': None, 'light': None, 'timestamp': None}
+lock = threading.Lock()
+
+def store_sensor_data(temperature=None, humidity=None, light=None):
+    global latest_sensor_data
+    try:
+        conn = sqlite3.connect("iot_data.db")
+        cursor = conn.cursor()
+        timestamp = datetime.now().isoformat()
+        app.logger.debug(f"Storing sensor data: T={temperature}, H={humidity}, L={light}")
+
+        with lock:
+            # Update the latest sensor data
+            if temperature is not None:
+                latest_sensor_data['temperature'] = temperature
+                latest_sensor_data['timestamp'] = timestamp
+            if humidity is not None:
+                latest_sensor_data['humidity'] = humidity
+                if latest_sensor_data['timestamp'] is None:
+                    latest_sensor_data['timestamp'] = timestamp
+            if light is not None:
+                latest_sensor_data['light'] = light
+                if latest_sensor_data['timestamp'] is None:
+                    latest_sensor_data['timestamp'] = timestamp
+
+            # Check if we have all sensor data and the timestamp is recent
+            if (latest_sensor_data['temperature'] is not None and
+                latest_sensor_data['humidity'] is not None and
+                latest_sensor_data['light'] is not None and
+                latest_sensor_data['timestamp'] is not None):
+                # Check for duplicates within 5 seconds
+                cursor.execute(
+                    "SELECT temperature, humidity, light_level, timestamp FROM sensor_data WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+                    (1,)
+                )
+                last_entry = cursor.fetchone()
+                if last_entry and (datetime.now() - datetime.fromisoformat(last_entry[3])).total_seconds() < 5:
+                    if (last_entry[0] == latest_sensor_data['temperature'] and
+                        last_entry[1] == latest_sensor_data['humidity'] and
+                        last_entry[2] == latest_sensor_data['light']):
+                        app.logger.debug("Skipping duplicate sensor data")
+                        return
+
+                # Insert combined sensor data
+                cursor.execute(
+                    "INSERT INTO sensor_data (device_id, timestamp, temperature, humidity, light_level) VALUES (?, ?, ?, ?, ?)",
+                    (1, latest_sensor_data['timestamp'], latest_sensor_data['temperature'],
+                     latest_sensor_data['humidity'], latest_sensor_data['light'])
+                )
+                app.logger.debug(f"Inserted combined sensor data: T={latest_sensor_data['temperature']}, "
+                               f"H={latest_sensor_data['humidity']}, L={latest_sensor_data['light']}")
+                # Reset latest sensor data
+                latest_sensor_data = {'temperature': None, 'humidity': None, 'light': None, 'timestamp': None}
+
+        conn.commit()
+        app.logger.info(f"Stored sensor data: T={temperature}, H={humidity}, L={light}")
+    except Exception as e:
+        app.logger.error(f"Error in store_sensor_data: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
 def on_mqtt_message(client, userdata, msg):
-    if msg.topic == "home/sensors":
-        try:
-            payload = msg.payload.decode()
-            humidity, temperature, light = map(float, payload.split(","))
-            store_sensor_data(humidity, temperature, light)
-            app.logger.debug(f"[✓] Stored: H={humidity}, T={temperature}, L={light}")
-        except Exception as e:
-            app.logger.error(f"[✗] Failed to process sensor data: {e}")
+    topic = msg.topic
+    payload = msg.payload.decode()
+    app.logger.info(f"Received {payload} from {topic}")
+    try:
+        if topic == "home/sensors/temperature":
+            store_sensor_data(temperature=float(payload))
+        elif topic == "home/sensors/humidity":
+            store_sensor_data(humidity=float(payload))
+        elif topic == "home/sensors/light":
+            store_sensor_data(light=float(payload))
+        elif topic == "home/control/light":
+            store_light_status(payload, 1)
+        elif topic == "home/control/fan":
+            store_fan_status(payload)
+        elif topic == "home/control/motor":
+            store_motor_status(payload)
+        app.logger.debug(f"[✓] Processed: {payload} from {topic}")
+    except Exception as e:
+        app.logger.error(f"[✗] Failed to process message from {topic}: {e}")
 
 # Publish sensor data periodically
 def publish_sensor_data():
@@ -116,49 +192,38 @@ def publish_sensor_data():
         try:
             conn = sqlite3.connect('iot_data.db')
             cursor = conn.cursor()
-            cursor.execute("SELECT humidity, temperature FROM temperature_humidity_data ORDER BY id DESC LIMIT 1")
-            temp_hum = cursor.fetchone()
-            cursor.execute("SELECT light_level FROM light_sensor_data ORDER BY id DESC LIMIT 1")
-            light = cursor.fetchone()
+            cursor.execute("SELECT humidity, temperature, light_level FROM sensor_data WHERE humidity IS NOT NULL AND temperature IS NOT NULL AND light_level IS NOT NULL ORDER BY id DESC LIMIT 1")
+            sensor_data = cursor.fetchone()
             conn.close()
-            
-            if temp_hum and light:
-                payload = f"{temp_hum[0]},{temp_hum[1]},{light[0]}"
-                mqttClient.publish("home/sensors", payload)
+            if sensor_data:
+                payload = f"{sensor_data[0]},{sensor_data[1]},{sensor_data[2]}"
+                mqttClient.publish("home/sensors", payload, qos=1)
                 app.logger.debug(f"[✓] Published sensor data: {payload}")
+            else:
+                app.logger.warning("No complete sensor data to publish")
         except Exception as e:
             app.logger.error(f"Error publishing sensor data: {e}")
-        time.sleep(60)  # Publish every 60 seconds
-
-# Database Functions
-def store_sensor_data(humidity, temperature, light):
-    try:
-        conn = sqlite3.connect("iot_data.db")
-        cursor = conn.cursor()
-        timestamp = datetime.now().isoformat()
-        cursor.execute(
-            "INSERT INTO temperature_humidity_data (device_id, timestamp, humidity, temperature) VALUES (?, ?, ?, ?)",
-            (1, timestamp, humidity, temperature)
-        )
-        cursor.execute(
-            "INSERT INTO light_sensor_data (device_id, timestamp, light_level) VALUES (?, ?, ?)",
-            (1, timestamp, light)
-        )
-        conn.commit()
-    except Exception as e:
-        app.logger.error(f"Error in store_sensor_data: {e}")
-    finally:
-        conn.close()
+        time.sleep(60)
 
 def store_light_status(action, device_id):
     try:
         conn = sqlite3.connect('iot_data.db')
         cursor = conn.cursor()
         cursor.execute(
+            "SELECT status, timestamp FROM relay_lights_status WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+            (device_id,)
+        )
+        last_entry = cursor.fetchone()
+        if last_entry and (datetime.now() - datetime.fromisoformat(last_entry[1])).total_seconds() < 1:
+            if last_entry[0] == (1 if action == 'ON' else 0):
+                app.logger.debug(f"Skipping duplicate light status: {action} for device {device_id}")
+                return
+        cursor.execute(
             "INSERT INTO relay_lights_status (device_id, timestamp, status) VALUES (?, ?, ?)",
-            (device_id, datetime.now().isoformat(), 1 if action.endswith('_on') else 0)
+            (device_id, datetime.now().isoformat(), 1 if action == 'ON' else 0)
         )
         conn.commit()
+        app.logger.info(f"Stored light status: {action} for device {device_id}")
     except Exception as e:
         app.logger.error(f"Error in store_light_status: {e}")
     finally:
@@ -169,10 +234,20 @@ def store_fan_status(action):
         conn = sqlite3.connect('iot_data.db')
         cursor = conn.cursor()
         cursor.execute(
+            "SELECT status, timestamp FROM relay_fans_status WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+            (6,)
+        )
+        last_entry = cursor.fetchone()
+        if last_entry and (datetime.now() - datetime.fromisoformat(last_entry[1])).total_seconds() < 1:
+            if last_entry[0] == (1 if action == 'ON' else 0):
+                app.logger.debug(f"Skipping duplicate fan status: {action}")
+                return
+        cursor.execute(
             "INSERT INTO relay_fans_status (device_id, timestamp, status) VALUES (?, ?, ?)",
-            (6, datetime.now().isoformat(), 1 if action == 'on' else 0)
+            (6, datetime.now().isoformat(), 1 if action == 'ON' else 0)
         )
         conn.commit()
+        app.logger.info(f"Stored fan status: {action}")
     except Exception as e:
         app.logger.error(f"Error in store_fan_status: {e}")
     finally:
@@ -183,10 +258,20 @@ def store_motor_status(direction):
         conn = sqlite3.connect('iot_data.db')
         cursor = conn.cursor()
         cursor.execute(
+            "SELECT direction, timestamp FROM dc_motor_status WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+            (3,)
+        )
+        last_entry = cursor.fetchone()
+        if last_entry and (datetime.now() - datetime.fromisoformat(last_entry[1])).total_seconds() < 1:
+            if last_entry[0].lower() == direction.lower():
+                app.logger.debug(f"Skipping duplicate motor status: {direction}")
+                return
+        cursor.execute(
             "INSERT INTO dc_motor_status (device_id, timestamp, direction) VALUES (?, ?, ?)",
-            (3, datetime.now().isoformat(), direction)
+            (3, datetime.now().isoformat(), direction.upper())
         )
         conn.commit()
+        app.logger.info(f"Stored motor status: {direction}")
     except Exception as e:
         app.logger.error(f"Error in store_motor_status: {e}")
     finally:
@@ -247,10 +332,10 @@ def control_led():
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     action = request.json.get('action')
     device_id = request.json.get('device_id')
-    if action not in ['led1_on', 'led1_off'] or not device_id:
+    if action not in ['ON', 'OFF'] or not device_id:
         return jsonify({'status': 'error', 'message': 'Invalid action or device_id'}), 400
     try:
-        mqttClient.publish("home/control", action)
+        mqttClient.publish("home/control/light", action, qos=1)
         store_light_status(action, device_id)
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -262,10 +347,10 @@ def control_fan():
     if 'user_id' not in session:
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     action = request.json.get('action')
-    if action not in ['on', 'off']:
+    if action not in ['ON', 'OFF']:
         return jsonify({'status': 'error', 'message': 'Invalid fan action'}), 400
     try:
-        mqttClient.publish("home/control", f"fan_{action}")
+        mqttClient.publish("home/control/fan", action, qos=1)
         store_fan_status(action)
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -277,10 +362,10 @@ def control_motor():
     if 'user_id' not in session:
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     action = request.json.get('action')
-    if action not in ['forward', 'backward', 'stop']:
+    if action not in ['FORWARD', 'BACKWARD', 'STOP']:
         return jsonify({'status': 'error', 'message': 'Invalid motor action'}), 400
     try:
-        mqttClient.publish("home/control", f"motor_{action}")
+        mqttClient.publish("home/control/motor", action, qos=1)
         store_motor_status(action)
         return jsonify({'status': 'success'})
     except Exception as e:
@@ -294,15 +379,13 @@ def get_sensor_data():
     try:
         conn = sqlite3.connect('iot_data.db')
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM temperature_humidity_data ORDER BY id DESC LIMIT 1")
-        temp_hum = cursor.fetchone()
-        cursor.execute("SELECT * FROM light_sensor_data ORDER BY id DESC LIMIT 1")
-        light = cursor.fetchone()
+        cursor.execute("SELECT humidity, temperature, light_level FROM sensor_data WHERE humidity IS NOT NULL AND temperature IS NOT NULL AND light_level IS NOT NULL ORDER BY id DESC LIMIT 1")
+        sensor_data = cursor.fetchone()
         conn.close()
         return jsonify({
-            'humidity': temp_hum[3] if temp_hum else None,
-            'temperature': temp_hum[4] if temp_hum else None,
-            'light': light[3] if light else None
+            'humidity': sensor_data[0] if sensor_data else None,
+            'temperature': sensor_data[1] if sensor_data else None,
+            'light': sensor_data[2] if sensor_data else None
         })
     except Exception as e:
         app.logger.error(f"Error in sensor_data route: {e}")
@@ -317,30 +400,26 @@ def get_history():
         cursor = conn.cursor()
         
         # Fetch sensor data
-        cursor.execute("SELECT id, timestamp, humidity, temperature FROM temperature_humidity_data ORDER BY timestamp DESC")
-        temp_hum_data = cursor.fetchall()
-        cursor.execute("SELECT id, timestamp, light_level FROM light_sensor_data ORDER BY timestamp DESC")
-        light_data = cursor.fetchall()
+        cursor.execute("SELECT id, timestamp, humidity, temperature, light_level FROM sensor_data ORDER BY timestamp DESC LIMIT 100")
+        sensor_data = cursor.fetchall()
         
-        # Combine sensor data by timestamp
-        sensors = []
-        for th, l in zip(temp_hum_data, light_data):
-            sensors.append({
-                'id': th[0],
-                'timestamp': th[1],
-                'humidity': th[2],
-                'temperature': th[3],
-                'light_level': l[2]
-            })
+        # Structure sensor data
+        sensors = [{
+            'id': row[0],
+            'timestamp': row[1],
+            'humidity': row[2],
+            'temperature': row[3],
+            'light_level': row[4]
+        } for row in sensor_data]
         
         # Fetch LED, fan, and motor data
-        cursor.execute("SELECT id, timestamp, status FROM relay_lights_status WHERE device_id = 1 ORDER BY timestamp DESC")
+        cursor.execute("SELECT id, timestamp, status FROM relay_lights_status WHERE device_id = 1 ORDER BY timestamp DESC LIMIT 100")
         led1 = [{'id': row[0], 'timestamp': row[1], 'status': row[2]} for row in cursor.fetchall()]
         
-        cursor.execute("SELECT id, timestamp, status FROM relay_fans_status WHERE device_id = 6 ORDER BY timestamp DESC")
+        cursor.execute("SELECT id, timestamp, status FROM relay_fans_status WHERE device_id = 6 ORDER BY timestamp DESC LIMIT 100")
         fan = [{'id': row[0], 'timestamp': row[1], 'status': row[2]} for row in cursor.fetchall()]
         
-        cursor.execute("SELECT id, timestamp, direction FROM dc_motor_status WHERE device_id = 3 ORDER BY timestamp DESC")
+        cursor.execute("SELECT id, timestamp, direction FROM dc_motor_status WHERE device_id = 3 ORDER BY timestamp DESC LIMIT 100")
         motor = [{'id': row[0], 'timestamp': row[1], 'direction': row[2]} for row in cursor.fetchall()]
         
         conn.close()
@@ -363,30 +442,26 @@ def get_all_data_visualization():
         cursor = conn.cursor()
         
         # Fetch sensor data
-        cursor.execute("SELECT id, timestamp, humidity, temperature FROM temperature_humidity_data ORDER BY timestamp DESC")
-        temp_hum_data = cursor.fetchall()
-        cursor.execute("SELECT id, timestamp, light_level FROM light_sensor_data ORDER BY timestamp DESC")
-        light_data = cursor.fetchall()
+        cursor.execute("SELECT id, timestamp, humidity, temperature, light_level FROM sensor_data ORDER BY timestamp DESC LIMIT 100")
+        sensor_data = cursor.fetchall()
         
-        # Combine sensor data by timestamp
-        sensors = []
-        for th, l in zip(temp_hum_data, light_data):
-            sensors.append({
-                'id': th[0],
-                'timestamp': th[1],
-                'humidity': th[2],
-                'temperature': th[3],
-                'light_level': l[2]
-            })
+        # Structure sensor data
+        sensors = [{
+            'id': row[0],
+            'timestamp': row[1],
+            'humidity': row[2],
+            'temperature': row[3],
+            'light_level': row[4]
+        } for row in sensor_data]
         
         # Fetch LED, fan, and motor data
-        cursor.execute("SELECT id, timestamp, status FROM relay_lights_status WHERE device_id = 1 ORDER BY timestamp DESC")
+        cursor.execute("SELECT id, timestamp, status FROM relay_lights_status WHERE device_id = 1 ORDER BY timestamp DESC LIMIT 100")
         led1 = [{'id': row[0], 'timestamp': row[1], 'status': row[2]} for row in cursor.fetchall()]
         
-        cursor.execute("SELECT id, timestamp, status FROM relay_fans_status WHERE device_id = 6 ORDER BY timestamp DESC")
+        cursor.execute("SELECT id, timestamp, status FROM relay_fans_status WHERE device_id = 6 ORDER BY timestamp DESC LIMIT 100")
         fan = [{'id': row[0], 'timestamp': row[1], 'status': row[2]} for row in cursor.fetchall()]
         
-        cursor.execute("SELECT id, timestamp, direction FROM dc_motor_status WHERE device_id = 3 ORDER BY timestamp DESC")
+        cursor.execute("SELECT id, timestamp, direction FROM dc_motor_status WHERE device_id = 3 ORDER BY timestamp DESC LIMIT 100")
         motor = [{'id': row[0], 'timestamp': row[1], 'direction': row[2]} for row in cursor.fetchall()]
         
         conn.close()
@@ -404,11 +479,12 @@ def get_all_data_visualization():
 if __name__ == '__main__':
     init_db()
     try:
+        mqttClient.on_connect = on_connect
         mqttClient.on_message = on_mqtt_message
         mqttClient.connect(mqttBroker, 1883, 60)
-        mqttClient.subscribe("home/sensors")
         mqttClient.loop_start()
         threading.Thread(target=publish_sensor_data, daemon=True).start()
+        app.logger.info("MQTT client started")
     except Exception as e:
         app.logger.error(f"MQTT connection failed: {e}")
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)

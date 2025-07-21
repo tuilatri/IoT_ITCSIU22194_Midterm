@@ -191,7 +191,7 @@
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 12px;
-      margin-bottom: 12px;
+      margin-bottom: 24px;
     }
 
     .controls__button {
@@ -219,42 +219,6 @@
       font-size: 1.2rem;
       font-weight: 600;
       margin-bottom: 12px;
-    }
-
-    .controls__status {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 8px;
-      font-size: 0.9rem;
-      font-weight: 600;
-      border-radius: 8px;
-      background: var(--status-background);
-      color: var(--text-secondary);
-      border: 1px solid rgba(0, 0, 0, 0.1);
-      text-align: center;
-      min-width: 100px;
-    }
-
-    .controls__status--on {
-      color: var(--status-success);
-      border-color: var(--status-success);
-    }
-
-    .controls__status--off {
-      color: var(--status-error);
-      border-color: var(--status-error);
-    }
-
-    .controls__status--unknown {
-      color: var(--text-secondary);
-      border-color: var(--text-secondary);
-    }
-
-    .controls__section-content {
-      /* display: flex; */
-      gap: 12px;
-      align-items: center;
     }
 
     .status {
@@ -547,12 +511,6 @@
         padding: 10px;
       }
 
-      .controls__status {
-        font-size: 0.8rem;
-        padding: 6px;
-        min-width: 80px;
-      }
-
       .history__table th,
       .history__table td {
         font-size: 0.75rem;
@@ -696,49 +654,40 @@
 
         <div class="controls__section">
           <h2 class="controls__section-title">LED Control</h2>
-          <div class="controls__section-content">
-            <div class="controls-grid">
-              <button class="controls__button" onclick="controlLight('ON', 1)">
-                <i class="fas fa-lightbulb"></i> LED1 ON
-              </button>
-              <button class="controls__button" onclick="controlLight('OFF', 1)">
-                <i class="fas fa-lightbulb"></i> LED1 OFF
-              </button>
-            </div>
-            <div class="controls__status" id="led1Status">Unknown</div>
+          <div class="controls-grid">
+            <button class="controls__button" onclick="controlLight('ON', 1)">
+              <i class="fas fa-lightbulb"></i> LED1 ON
+            </button>
+            <button class="controls__button" onclick="controlLight('OFF', 1)">
+              <i class="fas fa-lightbulb"></i> LED1 OFF
+            </button>
           </div>
         </div>
 
         <div class="controls__section">
           <h2 class="controls__section-title">DC Motor Control</h2>
-          <div class="controls__section-content">
-            <div class="controls-grid">
-              <button class="controls__button" onclick="controlMotor('forward')">
-                <i class="fas fa-arrow-right"></i> Move Forward
-              </button>
-              <button class="controls__button" onclick="controlMotor('backward')">
-                <i class="fas fa-arrow-left"></i> Move Backward
-              </button>
-              <button class="controls__button" onclick="controlMotor('stop')">
-                <i class="fas fa-stop"></i> Stop Motor
-              </button>
-            </div>
-            <div class="controls__status" id="motorStatus">Unknown</div>
+          <div class="controls-grid">
+            <button class="controls__button" onclick="controlMotor('forward')">
+              <i class="fas fa-arrow-right"></i> Move Forward
+            </button>
+            <button class="controls__button" onclick="controlMotor('backward')">
+              <i class="fas fa-arrow-left"></i> Move Backward
+            </button>
+            <button class="controls__button" onclick="controlMotor('stop')">
+              <i class="fas fa-stop"></i> Stop Motor
+            </button>
           </div>
         </div>
 
         <div class="controls__section">
           <h2 class="controls__section-title">Fan Control</h2>
-          <div class="controls__section-content">
-            <div class="controls-grid">
-              <button class="controls__button" onclick="controlFan('on')">
-                <i class="fas fa-fan"></i> Turn Fan ON
-              </button>
-              <button class="controls__button" onclick="controlFan('off')">
-                <i class="fas fa-fan"></i> Turn Fan OFF
-              </button>
-            </div>
-            <div class="controls__status" id="fanStatus">Unknown</div>
+          <div class="controls-grid">
+            <button class="controls__button" onclick="controlFan('on')">
+              <i class="fas fa-fan"></i> Turn Fan ON
+            </button>
+            <button class="controls__button" onclick="controlFan('off')">
+              <i class="fas fa-fan"></i> Turn Fan OFF
+            </button>
           </div>
         </div>
 
@@ -993,49 +942,6 @@
       }
     }
 
-    function updateDeviceStatus() {
-      fetch('/history')
-        .then((response) => response.json())
-        .then((data) => {
-          // Update LED1 status
-          const led1StatusDiv = document.getElementById('led1Status');
-          if (data.led1 && data.led1.length > 0) {
-            const latest = data.led1[0];
-            led1StatusDiv.textContent = latest.status === 1 ? 'ON' : 'OFF';
-            led1StatusDiv.className = `controls__status controls__status--${latest.status === 1 ? 'on' : 'off'}`;
-          } else {
-            led1StatusDiv.textContent = 'Unknown';
-            led1StatusDiv.className = 'controls__status controls__status--unknown';
-          }
-
-          // Update Motor status
-          const motorStatusDiv = document.getElementById('motorStatus');
-          if (data.motor && data.motor.length > 0) {
-            const latest = data.motor[0];
-            motorStatusDiv.textContent = latest.direction || 'Unknown';
-            motorStatusDiv.className = `controls__status controls__status--${latest.direction.toLowerCase() === 'stop' ? 'off' : 'on'}`;
-          } else {
-            motorStatusDiv.textContent = 'Unknown';
-            motorStatusDiv.className = 'controls__status controls__status--unknown';
-          }
-
-          // Update Fan status
-          const fanStatusDiv = document.getElementById('fanStatus');
-          if (data.fan && data.fan.length > 0) {
-            const latest = data.fan[0];
-            fanStatusDiv.textContent = latest.status === 1 ? 'ON' : 'OFF';
-            fanStatusDiv.className = `controls__status controls__status--${latest.status === 1 ? 'on' : 'off'}`;
-          } else {
-            fanStatusDiv.textContent = 'Unknown';
-            fanStatusDiv.className = 'controls__status controls__status--unknown';
-          }
-        })
-        .catch((error) => {
-          console.error('Error fetching device status:', error);
-          showNotification('Error fetching device status', 'error');
-        });
-    }
-
     function fetchSensorData() {
       fetch("/sensor_data")
         .then((response) => response.json())
@@ -1068,7 +974,6 @@
           updateTable("led1", led1History, tableStates['led1']);
           updateTable("motor", motorHistory, tableStates['motor']);
           updateTable("fan", fanHistory, tableStates['fan']);
-          updateDeviceStatus();
         })
         .catch((error) => {
           console.error("Error fetching history data:", error);
@@ -1638,7 +1543,6 @@
     fetchHistoryData();
     fetchVisualizationData();
     setInterval(fetchSensorData, 5000);
-    setInterval(fetchHistoryData, 5000);
     setInterval(fetchVisualizationData, 60000);
   </script>
 </body>
